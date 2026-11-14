@@ -1,13 +1,17 @@
+<!-- TEMPLATE (ZH) BEGIN: BADGES -->
+
 [![GitHub Workflow Status (branch)](https://img.shields.io/github/actions/workflow/status/yylego/kratos-pass-random/release.yml?branch=main&label=BUILD)](https://github.com/yylego/kratos-pass-random/actions/workflows/release.yml?query=branch%3Amain)
 [![GoDoc](https://pkg.go.dev/badge/github.com/yylego/kratos-pass-random)](https://pkg.go.dev/github.com/yylego/kratos-pass-random)
 [![Coverage Status](https://img.shields.io/coveralls/github/yylego/kratos-pass-random/main.svg)](https://coveralls.io/github/yylego/kratos-pass-random?branch=main)
-[![Supported Go Versions](https://img.shields.io/badge/Go-1.25+-lightgrey.svg)](https://go.dev/)
+[![Supported Go Versions](https://img.shields.io/badge/Go-1.26%2B-lightgrey.svg)](https://go.dev/)
 [![GitHub Release](https://img.shields.io/github/release/yylego/kratos-pass-random.svg)](https://github.com/yylego/kratos-pass-random/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/yylego/kratos-pass-random)](https://goreportcard.com/report/github.com/yylego/kratos-pass-random)
 
+<!-- TEMPLATE (ZH) CLOSE: BADGES -->
+
 # kratos-pass-random
 
-概率性请求阻断中间件，支持混沌测试和灰度发布。
+概率性请求阻断中间件，用于混沌测试和故障注入。
 
 ---
 
@@ -17,15 +21,14 @@
 
 [ENGLISH README](README.md)
 
-<!-- TEMPLATE (ZH) END: LANGUAGE NAVIGATION -->
+<!-- TEMPLATE (ZH) CLOSE: LANGUAGE NAVIGATION -->
 
 ## 核心特性
 
-🎲 **随机阻断**: 按可配置概率（0.0 到 1.0 放行率）阻断请求
-🔥 **混沌测试**: 注入随机 503 响应，验证系统韧性
-🗺️ **路由范围**: INCLUDE/EXCLUDE 模式选择阻断路由
-📡 **APM 追踪**: 通过 `authkratos.SpanHook` 进行可插拔的 span 钩子集成
-⚙️ **调试模式**: 提供详细的放行/阻断决策调试输出
+- 🎲 **随机阻断**: 按可配置概率（0.0 到 1.0 放行率）阻断请求
+- 🔥 **混沌测试**: 注入随机 503 响应，验证系统韧性
+- 🗺️ **路由范围**: INCLUDE/EXCLUDE 模式选择阻断路由
+- 🪵 **调试日志**: 每次放行和拦截结果以 debug 级别写进日志，显示与否由日志级别决定
 
 ## 安装
 
@@ -36,13 +39,23 @@ go get github.com/yylego/kratos-pass-random
 ## 使用方法
 
 ```go
-import "github.com/yylego/kratos-pass-random/passkratosrandom"
+import (
+    "log/slog"
 
-// 80% 的请求放行，20% 返回 503 ServiceUnavailable
-cfg := passkratosrandom.NewConfig(routeScope, 0.8).
-    WithDebugMode(true)
-mw := passkratosrandom.NewMiddleware(cfg, logger)
+    "github.com/go-kratos/kratos/v3/transport/http"
+    "github.com/yylego/kratos-auth/authkratos"
+    "github.com/yylego/kratos-pass-random/passkratosrandom"
+)
+
+// newHTTPServer 放行 80% 的 Search 请求，拦下 20% 返回 503，用来检验客户端怎么应对
+func newHTTPServer(logger *slog.Logger) *http.Server {
+    routeScope := authkratos.NewInclude("/api.Article/Search")
+    cfg := passkratosrandom.NewConfig(routeScope, 0.8)
+    return http.NewServer(http.Middleware(passkratosrandom.NewMiddleware(cfg, logger)))
+}
 ```
+
+被拦下的请求返回 `503 RANDOM_RATE_UNAVAILABLE`。范围外的路由不拦截。
 
 ---
 
@@ -104,10 +117,4 @@ MIT 许可证 - 详见 [LICENSE](LICENSE)。
 
 **祝你用这个包编程愉快！** 🎉🎉🎉
 
-<!-- TEMPLATE (ZH) END: STANDARD PROJECT FOOTER -->
-
----
-
-## GitHub 标星点赞
-
-[![标星点赞](https://starchart.cc/yylego/kratos-pass-random.svg?variant=adaptive)](https://starchart.cc/yylego/kratos-pass-random)
+<!-- TEMPLATE (ZH) CLOSE: STANDARD PROJECT FOOTER -->

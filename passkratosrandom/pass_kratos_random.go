@@ -1,110 +1,83 @@
 // Package passkratosrandom: Probabilistic request blocking middleware with chaos testing support
 // Provides random pass-through rate with configurable odds
-// Good fit in testing, chaos engineering, and staged rollout scenarios
+// Good fit in chaos engineering and fault injection, to check how clients handle failures
 // Enables blocking specific request ratio within designated route scope
 //
 // passkratosrandom: 概率性请求阻断中间件，支持混沌测试
 // 提供可配置概率的随机放行率控制
-// 适用于压力测试、混沌工程和灰度发布场景
+// 适用于混沌工程和故障注入，检验调用方怎么应对失败
 // 可在指定路由范围内阻断一定百分比的请求
 package passkratosrandom
 
 import (
 	"context"
 	"log/slog"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/go-kratos/kratos/v3/errors"
 	"github.com/go-kratos/kratos/v3/middleware"
 	"github.com/go-kratos/kratos/v3/middleware/selector"
 	"github.com/yylego/kratos-auth/authkratos"
-	"github.com/yylego/neatjson/neatjsons"
 )
 
+// Config holds the random pass configuration: the route scope and the share of requests to let through
+//
+// Config 保存随机放行的配置：路由范围和要放行的请求比例
 type Config struct {
 	routeScope *authkratos.RouteScope
-	rate       float64
-	spanHooks  []authkratos.NewSpanHookFunc
-	debugMode  bool
+	passRate   float64
 }
 
+// NewConfig creates a random pass config
+// passRate is the share of requests in the scope to let through: 0.8 lets 80% through, 1 (and above) lets each one through, 0 (and below) blocks each one
+//
+// NewConfig 创建随机放行配置
+// passRate 是范围内要放行的请求比例：0.8 放行 80%，大于等于 1 全部放行，小于等于 0 全部拦下
 func NewConfig(routeScope *authkratos.RouteScope, passRate float64) *Config {
 	return &Config{
 		routeScope: routeScope,
-		rate:       passRate,
-		spanHooks:  nil,
-		debugMode:  false,
+		passRate:   passRate,
 	}
 }
 
-func (c *Config) WithDebugMode(debugMode bool) *Config {
-	c.debugMode = debugMode
-	return c
-}
-
-// WithNewSpanHook appends a span hook creation callback
+// NewMiddleware creates middleware that blocks a share of requests in the scope with 503 RANDOM_RATE_UNAVAILABLE
+// Requests that pass, and requests outside the scope, go on to the next handle func
+// Each pass and block outcome goes to applog at debug level, so the level of applog decides if it shows
 //
-// WithNewSpanHook 追加一个 span 钩子创建回调函数
-func (c *Config) WithNewSpanHook(fn authkratos.NewSpanHookFunc) *Config {
-	c.spanHooks = append(c.spanHooks, fn)
-	return c
-}
-
-// NewMiddleware creates middleware that fails requests with configured rate
-//
-// NewMiddleware 让接口有一定概率失败
+// NewMiddleware 创建中间件：范围内按比例拦下一部分请求，返回 503 RANDOM_RATE_UNAVAILABLE
+// 放行的请求和范围外的请求照常交给处理函数
+// 每次放行和拦截结果以 debug 级别写进 applog，显示与否由 applog 的日志级别决定
 func NewMiddleware(cfg *Config, applog *slog.Logger) middleware.Middleware {
 	applog.Info(
 		"pass-kratos-random: new middleware",
 		"side", cfg.routeScope.Side,
 		"operations", len(cfg.routeScope.OperationSet),
-		"rate", cfg.rate,
-		"debug-mode", authkratos.BooleanToNum(cfg.debugMode),
+		"pass-rate", cfg.passRate,
 	)
-	if cfg.debugMode {
-		applog.Debug("pass-kratos-random: new middleware route-scope", "route-scope", neatjsons.S(cfg.routeScope))
-	}
-	return selector.Server(middlewareFunc(cfg, applog)).Match(matchFunc(cfg, applog)).Build()
+	applog.Debug("pass-kratos-random: new middleware route-scope", "route-scope", cfg.routeScope)
+	return selector.Server(blockRequest).Match(matchFunc(cfg, applog)).Build()
 }
 
 func matchFunc(cfg *Config, applog *slog.Logger) selector.MatchFunc {
 	return func(ctx context.Context, operation string) bool {
-		defer authkratos.RunSpanHooks(ctx, cfg.spanHooks, "pass-kratos-random-match")()
-
-		if match := cfg.routeScope.Match(operation); !match {
-			if cfg.debugMode {
-				applog.Debug("pass-kratos-random: match next -> skip random", "operation", operation, "side", cfg.routeScope.Side, "match", authkratos.BooleanToNum(match))
-			}
+		if !cfg.routeScope.Match(operation) {
+			applog.Debug("pass-kratos-random: match skip -- outside the route scope", "operation", operation, "side", cfg.routeScope.Side)
 			return false
 		}
-		// 设置rate=0.6就是有60%的概率通过
-		// 设置rate=1或者>1就是肯定通过，设置为0或负数就必然不通过
-		ratePass := rand.Float64() < cfg.rate
-
-		// 是否进入拦截器，拦截器会拦截请求
-		// 因此这里求逆值，通过的不拦截，不通过的拦截
-		match := !ratePass
-		if cfg.debugMode {
-			if match {
-				applog.Debug("pass-kratos-random: match next -> goto unavailable", "operation", operation, "side", cfg.routeScope.Side, "match", authkratos.BooleanToNum(match))
-			} else {
-				applog.Debug("pass-kratos-random: match skip -- skip unavailable", "operation", operation, "side", cfg.routeScope.Side, "match", authkratos.BooleanToNum(match))
-			}
-		}
-		return match
+		// passRate=0.6 lets 60% through; at 1 (and above) each one passes, at 0 (and below) none passes
+		// passRate=0.6 表示 60% 的概率放行；大于等于 1 全部放行，小于等于 0 全部拦下
+		pass := rand.Float64() < cfg.passRate
+		applog.Debug("pass-kratos-random: random pass", "operation", operation, "side", cfg.routeScope.Side, "pass", pass)
+		// A match sends the request into blockRequest, so the match is the inverse of the pass
+		// 匹配上的请求会进入 blockRequest，所以匹配结果是放行结果取反
+		return !pass
 	}
 }
 
-func middlewareFunc(cfg *Config, applog *slog.Logger) middleware.Middleware {
-	return func(handleFunc middleware.Handler) middleware.Handler {
-		return func(ctx context.Context, req interface{}) (interface{}, error) {
-			defer authkratos.RunSpanHooks(ctx, cfg.spanHooks, "pass-kratos-random")()
-
-			if cfg.debugMode {
-				applog.Debug("pass-kratos-random: random match unavailable")
-			}
-			//当已经命中概率的时候，就直接返回错误
-			return nil, errors.ServiceUnavailable("RANDOM_RATE_UNAVAILABLE", "pass-kratos-random: random unavailable")
-		}
+// blockRequest answers each request it gets with 503, the requests matchFunc picks to block
+// blockRequest 对收到的每个请求都返回 503，这些是 matchFunc 选中要拦下的请求
+func blockRequest(handleFunc middleware.Handler) middleware.Handler {
+	return func(ctx context.Context, req any) (any, error) {
+		return nil, errors.ServiceUnavailable("RANDOM_RATE_UNAVAILABLE", "pass-kratos-random: random unavailable")
 	}
 }

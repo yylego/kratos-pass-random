@@ -1,13 +1,17 @@
+<!-- TEMPLATE (EN) BEGIN: BADGES -->
+
 [![GitHub Workflow Status (branch)](https://img.shields.io/github/actions/workflow/status/yylego/kratos-pass-random/release.yml?branch=main&label=BUILD)](https://github.com/yylego/kratos-pass-random/actions/workflows/release.yml?query=branch%3Amain)
 [![GoDoc](https://pkg.go.dev/badge/github.com/yylego/kratos-pass-random)](https://pkg.go.dev/github.com/yylego/kratos-pass-random)
 [![Coverage Status](https://img.shields.io/coveralls/github/yylego/kratos-pass-random/main.svg)](https://coveralls.io/github/yylego/kratos-pass-random?branch=main)
-[![Supported Go Versions](https://img.shields.io/badge/Go-1.25+-lightgrey.svg)](https://go.dev/)
+[![Supported Go Versions](https://img.shields.io/badge/Go-1.26%2B-lightgrey.svg)](https://go.dev/)
 [![GitHub Release](https://img.shields.io/github/release/yylego/kratos-pass-random.svg)](https://github.com/yylego/kratos-pass-random/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/yylego/kratos-pass-random)](https://goreportcard.com/report/github.com/yylego/kratos-pass-random)
 
+<!-- TEMPLATE (EN) CLOSE: BADGES -->
+
 # kratos-pass-random
 
-Random request blocking middleware with chaos testing and staged-rollout support.
+Random request blocking middleware for chaos testing and fault injection.
 
 ---
 
@@ -17,15 +21,14 @@ Random request blocking middleware with chaos testing and staged-rollout support
 
 [中文说明](README.zh.md)
 
-<!-- TEMPLATE (EN) END: LANGUAGE NAVIGATION -->
+<!-- TEMPLATE (EN) CLOSE: LANGUAGE NAVIGATION -->
 
 ## Main Features
 
-🎲 **Random Blocking**: Block requests at configurable odds (0.0 to 1.0 pass rate)
-🔥 **Chaos Testing**: Inject random 503 responses to validate resilience
-🗺️ **Route Scope**: INCLUDE/EXCLUDE mode to choose which routes get blocked
-📡 **APM Tracing**: Span hook integration via `authkratos.SpanHook`
-⚙️ **Debug Mode**: Verbose debug output on pass/block decisions
+- 🎲 **Random Blocking**: Block requests at configurable odds (0.0 to 1.0 pass rate)
+- 🔥 **Chaos Testing**: Inject random 503 responses to validate resilience
+- 🗺️ **Route Scope**: INCLUDE/EXCLUDE mode to choose which routes get blocked
+- 🪵 **Debug Logs**: Each pass and block outcome goes to the logger at debug level, and the logger level decides if it shows
 
 ## Installation
 
@@ -36,13 +39,23 @@ go get github.com/yylego/kratos-pass-random
 ## Usage
 
 ```go
-import "github.com/yylego/kratos-pass-random/passkratosrandom"
+import (
+    "log/slog"
 
-// 80% of requests pass, 20% get 503 ServiceUnavailable
-cfg := passkratosrandom.NewConfig(routeScope, 0.8).
-    WithDebugMode(true)
-mw := passkratosrandom.NewMiddleware(cfg, logger)
+    "github.com/go-kratos/kratos/v3/transport/http"
+    "github.com/yylego/kratos-auth/authkratos"
+    "github.com/yylego/kratos-pass-random/passkratosrandom"
+)
+
+// newHTTPServer lets 80% of the Search requests through and blocks 20% with 503, to check how the clients cope
+func newHTTPServer(logger *slog.Logger) *http.Server {
+    routeScope := authkratos.NewInclude("/api.Article/Search")
+    cfg := passkratosrandom.NewConfig(routeScope, 0.8)
+    return http.NewServer(http.Middleware(passkratosrandom.NewMiddleware(cfg, logger)))
+}
 ```
+
+Blocked requests get `503 RANDOM_RATE_UNAVAILABLE`. Routes outside the scope are not blocked.
 
 ---
 
@@ -104,10 +117,4 @@ Welcome to contribute to this project via submitting merge requests and reportin
 
 **Have Fun Coding with this package!** 🎉🎉🎉
 
-<!-- TEMPLATE (EN) END: STANDARD PROJECT FOOTER -->
-
----
-
-## GitHub Stars
-
-[![Stargazers](https://starchart.cc/yylego/kratos-pass-random.svg?variant=adaptive)](https://starchart.cc/yylego/kratos-pass-random)
+<!-- TEMPLATE (EN) CLOSE: STANDARD PROJECT FOOTER -->
