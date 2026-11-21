@@ -55,7 +55,7 @@ func newHTTPServer(logger *slog.Logger) *http.Server {
 }
 ```
 
-被拦下的请求返回 `503 RANDOM_RATE_UNAVAILABLE`。范围外的路由不拦截。
+被拦下的请求返回 `503 RANDOM_BLOCKED`。范围外的路由不拦截。想返回自己的错误码，用 `WithBlockErk(newErk)` 传一个 `func(ctx context.Context) *errors.Error`；想记日志就写在这个函数里。
 
 ---
 

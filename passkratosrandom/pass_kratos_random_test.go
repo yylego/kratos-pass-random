@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/go-kratos/kratos/v3/errors"
 	"github.com/go-kratos/kratos/v3/transport/http"
 	"github.com/stretchr/testify/require"
 	"github.com/yylego/kratos-auth/authkratos"
@@ -64,11 +65,23 @@ func countPasses(t *testing.T, address string, n int) int {
 	return count
 }
 
-const blockedBody = `{"code":503,"reason":"RANDOM_RATE_UNAVAILABLE","message":"pass-kratos-random: random unavailable"}`
+const blockedBody = `{"code":503,"reason":"RANDOM_BLOCKED","message":"pass-kratos-random: request blocked at random"}`
 
 func TestNewConfig(t *testing.T) {
 	cfg := NewConfig(authkratos.NewInclude("/api.Demo/Search"), 0.8)
 	require.Equal(t, 0.8, cfg.passRate)
+}
+
+func TestConfig_WithBlockErk(t *testing.T) {
+	cfg := NewConfig(authkratos.NewInclude("/api.Demo/Search"), 0).
+		WithBlockErk(func(ctx context.Context) *errors.Error {
+			return errors.ServiceUnavailable("CHAOS_BLOCKED", "blocked on purpose")
+		})
+	server := newTestServer(t, cfg)
+
+	code, body := sendRequest(t, server.URL+"/search")
+	require.Equal(t, 503, code)
+	require.Equal(t, `{"code":503,"reason":"CHAOS_BLOCKED","message":"blocked on purpose"}`, body)
 }
 
 func TestNewMiddleware(t *testing.T) {

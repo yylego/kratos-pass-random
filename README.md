@@ -55,7 +55,7 @@ func newHTTPServer(logger *slog.Logger) *http.Server {
 }
 ```
 
-Blocked requests get `503 RANDOM_RATE_UNAVAILABLE`. Routes outside the scope are not blocked.
+Blocked requests get `503 RANDOM_BLOCKED`. Routes outside the scope are not blocked. To respond with a custom reason, pass a `func(ctx context.Context) *errors.Error` to `WithBlockErk(newErk)`; write a log inside this function when one is wanted.
 
 ---
 
